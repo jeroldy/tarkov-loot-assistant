@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tarkov Loot Assistant — Browser OCR</title>
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --panel: #171a20;
+      --panel2: #20242c;
+      --text: #e8e2d4;
+      --muted: #9a9385;
+      --accent: #d7b46a;
+      --good: #6ed37d;
+      --mid: #f1c65d;
+      --bad: #ef6f6c;
+      --border: #2d333d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1a1d23, var(--bg));
+      color: var(--text);
+    }
+    header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(13, 15, 18, 0.82);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    h1 { margin: 0; font-size: 22px; letter-spacing: 0.2px; }
+    .sub { color: var(--muted); margin-top: 6px; font-size: 14px; }
+    main {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 16px;
+      padding: 16px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    @media (max-width: 950px) { main { grid-template-columns: 1fr; } }
+    .card {
+      background: linear-gradient(180deg, rgba(32,36,44,0.96), rgba(23,26,32,0.96));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 18px 45px rgba(0,0,0,0.24);
+    }
+    .card h2 {
+      font-size: 16px;
+      margin: 0;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(0,0,0,0.14);
+    }
+    .body { padding: 16px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    button, input, select {
+      border: 1px solid var(--border);
+      background: #11141a;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+    button {
+      cursor: pointer;
+      background: linear-gradient(180deg, #2a2f38, #171a20);
+      transition: transform .08s ease, border-color .15s ease;
+    }
+    button:hover { border-color: var(--accent); }
+    button:active { transform: translateY(1px); }
+    button.primary { background: linear-gradient(180deg, #836c38, #5a451d); border-color: #a78943; }
+    button.danger { background: linear-gradient(180deg, #593034, #2b1618); border-color: #7e3d43; }
+    input { min-width: 230px; }
+    video, canvas.preview {
+      width: 100%;
+      max-height: 520px;
+      background: #050607;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+    .status {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .stat {
+      background: rgba(0,0,0,0.18);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+    }
+    .label { color: var(--muted); font-size: 12px; }
+    .value { font-weight: 700; font-size: 16px; margin-top: 3px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { color: var(--muted); text-align: left; font-weight: 600; }
+    .pill {
+      display: inline-flex;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .keep { color: var(--good); border-color: rgba(110,211,125,.4); background: rgba(110,211,125,.1); }
+    .maybe { color: var(--mid); border-color: rgba(241,198,93,.4); background: rgba(241,198,93,.1); }
+    .drop { color: var(--bad); border-color: rgba(239,111,108,.4); background: rgba(239,111,108,.1); }
+    .ocrbox {
+      white-space: pre-wrap;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 90px;
+      max-height: 170px;
+      overflow: auto;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+    }
+    .small { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Tarkov Loot Assistant</h1>
+    <div class="sub">Browser-only OCR price checker. No game hook, no memory reading, no Discord bot, no installed executable.</div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Capture</h2>
+      <div class="body">
+        <div class="row">
+          <button id="loadItems" class="primary">1. Load Tarkov Item Prices</button>
+          <button id="startCapture">2. Select Screen / Window</button>
+          <button id="scanNow">Scan Now</button>
+          <button id="autoScan">Start Auto Scan</button>
+          <button id="stopAuto" class="danger">Stop</button>
+        </div>
+
+        <div class="status" id="status">Load prices first. Then select the screen/window that shows Tarkov or a VOD.</div>
+
+        <div style="margin-top:14px;">
+          <video id="video" autoplay muted playsinline></video>
+        </div>
+
+        <div class="grid">
+          <div class="stat"><div class="label">Items Loaded</div><div class="value" id="itemCount">0</div></div>
+          <div class="stat"><div class="label">Detected</div><div class="value" id="detectedCount">0</div></div>
+          <div class="stat"><div class="label">Best Item</div><div class="value" id="bestItem">—</div></div>
+          <div class="stat"><div class="label">Scan Mode</div><div class="value" id="scanMode">Manual</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Manual Lookup</h2>
+      <div class="body">
+        <div class="row">
+          <input id="manualQuery" placeholder="Type item name, e.g. bolts, gpu, ledx" />
+          <button id="manualSearch">Search</button>
+        </div>
+        <div class="status">Use this first to confirm the price database loaded correctly. Manual search is also useful when OCR is messy.</div>
+        <h2 style="margin:16px -16px 12px; border-top:1px solid var(--border);">OCR Text</h2>
+        <div id="ocrText" class="ocrbox">No OCR yet.</div>
+      </div>
+    </section>
+
+    <section class="card" style="grid-column: 1 / -1;">
+      <h2>Detected Loot</h2>
+      <div class="body">
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Price</th>
+              <th>Slots</th>
+              <th>₽ / Slot</th>
+              <th>Best Sell</th>
+              <th>Confidence</th>
+              <th>Recommendation</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody">
+            <tr><td colspan="7" class="small">No results yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <canvas id="frameCanvas" style="display:none"></canvas>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script>
+    const API_URL = "https://api.tarkov.dev/graphql";
+
+    const els = {
+      loadItems: document.getElementById("loadItems"),
+      startCapture: document.getElementById("startCapture"),
+      scanNow: document.getElementById("scanNow"),
+      autoScan: document.getElementById("autoScan"),
+      stopAuto: document.getElementById("stopAuto"),
+      status: document.getElementById("status"),
+      itemCount: document.getElementById("itemCount"),
+      detectedCount: document.getElementById("detectedCount"),
+      bestItem: document.getElementById("bestItem"),
+      scanMode: document.getElementById("scanMode"),
+      video: document.getElementById("video"),
+      canvas: document.getElementById("frameCanvas"),
+      ocrText: document.getElementById("ocrText"),
+      resultsBody: document.getElementById("resultsBody"),
+      manualQuery: document.getElementById("manualQuery"),
+      manualSearch: document.getElementById("manualSearch"),
+    };
+
+    let items = [];
+    let itemTerms = [];
+    let worker = null;
+    let autoTimer = null;
+    let latestResults = [];
+
+    function setStatus(msg) { els.status.textContent = msg; }
+    function rub(n) {
+      if (!n || Number.isNaN(n)) return "—";
+      return Math.round(n).toLocaleString("en-US") + "₽";
+    }
+    function normalize(s) {
+      return String(s || "")
+        .toLowerCase()
+        .replace(/[™®]/g, "")
+        .replace(/[^a-z0-9\s\-\.\/]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+    function levenshtein(a, b) {
+      a = normalize(a); b = normalize(b);
+      const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + cost);
+        }
+      }
+      return dp[a.length][b.length];
+    }
+    function similarity(a, b) {
+      a = normalize(a); b = normalize(b);
+      if (!a || !b) return 0;
+      if (a === b) return 1;
+      if (a.includes(b) || b.includes(a)) return Math.min(1, Math.max(a.length, b.length) / Math.max(1, Math.min(a.length, b.length)) > 2.8 ? 0.78 : 0.92);
+      const dist = levenshtein(a, b);
+      return 1 - dist / Math.max(a.length, b.length);
+    }
+    function bestPrice(item) {
+      const sellFor = Array.isArray(item.sellFor) ? item.sellFor : [];
+      const sellPrices = sellFor.map(s => s.price).filter(Boolean);
+      const traderBest = sellPrices.length ? Math.max(...sellPrices) : 0;
+      return Math.max(item.avg24hPrice || 0, item.lastLowPrice || 0, item.basePrice || 0, traderBest || 0);
+    }
+    function bestSellLabel(item) {
+      const sellFor = Array.isArray(item.sellFor) ? item.sellFor : [];
+      if (!sellFor.length) return "—";
+      const best = sellFor.slice().sort((a,b) => (b.price || 0) - (a.price || 0))[0];
+      return best?.vendor?.name ? `${best.vendor.name} ${rub(best.price)}` : rub(best?.price);
+    }
+    function enrich(item, score = 1) {
+      const slots = Math.max(1, (item.width || 1) * (item.height || 1));
+      const price = bestPrice(item);
+      const pps = price / slots;
+      let rec = "DROP";
+      let cls = "drop";
+      if (pps >= 25000 || price >= 90000) { rec = "KEEP"; cls = "keep"; }
+      else if (pps >= 12000 || price >= 45000) { rec = "MAYBE"; cls = "maybe"; }
+      return { ...item, slots, price, pps, score, rec, cls };
+    }
+    function findBestMatch(query) {
+      const q = normalize(query);
+      if (!q || q.length < 2) return null;
+      let best = null;
+      for (const row of itemTerms) {
+        const s = similarity(q, row.term);
+        if (!best || s > best.score) best = { item: row.item, score: s, term: row.term };
+      }
+      return best && best.score >= 0.62 ? enrich(best.item, best.score) : null;
+    }
+    function buildCandidateLines(text) {
+      const raw = text.split(/\n|\r|\||•|·/).map(normalize).filter(Boolean);
+      const candidates = new Set();
+      for (const line of raw) {
+        if (line.length >= 2 && line.length <= 80) candidates.add(line);
+        const words = line.split(" ").filter(w => w.length > 1);
+        for (let i = 0; i < words.length; i++) {
+          for (let len = 1; len <= 5 && i + len <= words.length; len++) {
+            const phrase = words.slice(i, i + len).join(" ");
+            if (phrase.length >= 3 && phrase.length <= 55) candidates.add(phrase);
+          }
+        }
+      }
+      return [...candidates];
+    }
+    function addResults(newResults) {
+      const map = new Map(latestResults.map(r => [r.id, r]));
+      for (const r of newResults) {
+        const old = map.get(r.id);
+        if (!old || r.score > old.score) map.set(r.id, r);
+      }
+      latestResults = [...map.values()].sort((a,b) => b.pps - a.pps).slice(0, 25);
+      renderResults();
+    }
+    function renderResults() {
+      els.detectedCount.textContent = latestResults.length;
+      els.bestItem.textContent = latestResults[0]?.shortName || latestResults[0]?.name || "—";
+      if (!latestResults.length) {
+        els.resultsBody.innerHTML = `<tr><td colspan="7" class="small">No results yet.</td></tr>`;
+        return;
+      }
+      els.resultsBody.innerHTML = latestResults.map(r => `
+        <tr>
+          <td><strong>${escapeHtml(r.name)}</strong><br><span class="small">${escapeHtml(r.shortName || "")}</span></td>
+          <td>${rub(r.price)}</td>
+          <td>${r.width || 1}×${r.height || 1}<br><span class="small">${r.slots} slot${r.slots === 1 ? "" : "s"}</span></td>
+          <td><strong>${rub(r.pps)}</strong></td>
+          <td>${escapeHtml(bestSellLabel(r))}</td>
+          <td>${Math.round(r.score * 100)}%</td>
+          <td><span class="pill ${r.cls}">${r.rec}</span></td>
+        </tr>`).join("");
+    }
+    function escapeHtml(s) {
+      return String(s || "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c]));
+    }
+
+    async function loadItems() {
+      setStatus("Loading items from tarkov.dev...");
+      const query = `
+        query {
+          items {
+            id
+            name
+            shortName
+            width
+            height
+            basePrice
+            avg24hPrice
+            lastLowPrice
+            sellFor {
+              price
+              vendor { name }
+            }
+          }
+        }
+      `;
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      });
+      if (!res.ok) throw new Error("API request failed: " + res.status);
+      const json = await res.json();
+      items = (json.data?.items || []).filter(i => i.name);
+      itemTerms = [];
+      for (const item of items) {
+        itemTerms.push({ term: normalize(item.name), item });
+        if (item.shortName) itemTerms.push({ term: normalize(item.shortName), item });
+      }
+      els.itemCount.textContent = items.length.toLocaleString("en-US");
+      setStatus(`Loaded ${items.length.toLocaleString("en-US")} items. Now select your screen/window.`);
+    }
+
+    async function ensureWorker() {
+      if (worker) return worker;
+      setStatus("Starting OCR worker. First load can take a little bit because it downloads OCR files in the browser.");
+      worker = await Tesseract.createWorker("eng");
+      await worker.setParameters({
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -_/.'()[]",
+        preserve_interword_spaces: "1"
+      });
+      return worker;
+    }
+
+    async function startCapture() {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        throw new Error("Screen capture is not available in this browser. Use current Chrome/Edge on desktop.");
+      }
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
+      els.video.srcObject = stream;
+      await els.video.play();
+      setStatus("Capture active. Hover a loot item or open a loot screen, then press Scan Now.");
+    }
+
+    async function scanOnce() {
+      if (!items.length) throw new Error("Load item prices first.");
+      if (!els.video.srcObject) throw new Error("Select a screen/window first.");
+      const v = els.video;
+      const c = els.canvas;
+      const w = v.videoWidth || 1280;
+      const h = v.videoHeight || 720;
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(v, 0, 0, w, h);
+
+      // Simple contrast pass to help OCR.
+      const img = ctx.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = (d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114);
+        const boosted = gray > 135 ? 255 : gray < 80 ? 0 : gray * 1.15;
+        d[i] = d[i+1] = d[i+2] = boosted;
+      }
+      ctx.putImageData(img, 0, 0);
+
+      const ocr = await ensureWorker();
+      setStatus("Scanning frame with OCR...");
+      const result = await ocr.recognize(c);
+      const text = result.data.text || "";
+      els.ocrText.textContent = text.trim() || "No readable text found.";
+
+      const candidates = buildCandidateLines(text);
+      const matches = [];
+      for (const cand of candidates) {
+        const match = findBestMatch(cand);
+        if (match) matches.push(match);
+      }
+      const deduped = [...new Map(matches.sort((a,b) => b.score - a.score).map(m => [m.id, m])).values()]
+        .filter(m => m.score >= 0.68)
+        .slice(0, 8);
+
+      addResults(deduped);
+      setStatus(deduped.length ? `Detected ${deduped.length} likely item(s).` : "No confident item match. Try hovering the item tooltip or zooming the capture.");
+    }
+
+    function startAuto() {
+      if (autoTimer) clearInterval(autoTimer);
+      els.scanMode.textContent = "Auto";
+      scanOnce().catch(e => setStatus(e.message));
+      autoTimer = setInterval(() => scanOnce().catch(e => setStatus(e.message)), 4500);
+      setStatus("Auto scan started. It scans about every 4.5 seconds.");
+    }
+    function stopAuto() {
+      if (autoTimer) clearInterval(autoTimer);
+      autoTimer = null;
+      els.scanMode.textContent = "Manual";
+      setStatus("Auto scan stopped.");
+    }
+
+    els.loadItems.addEventListener("click", () => loadItems().catch(e => setStatus(e.message)));
+    els.startCapture.addEventListener("click", () => startCapture().catch(e => setStatus(e.message)));
+    els.scanNow.addEventListener("click", () => scanOnce().catch(e => setStatus(e.message)));
+    els.autoScan.addEventListener("click", () => startAuto());
+    els.stopAuto.addEventListener("click", () => stopAuto());
+    els.manualSearch.addEventListener("click", () => {
+      const match = findBestMatch(els.manualQuery.value);
+      if (match) {
+        addResults([match]);
+        setStatus(`Manual match: ${match.name}`);
+      } else {
+        setStatus("No manual match found. Try the exact item name or short name.");
+      }
+    });
+    els.manualQuery.addEventListener("keydown", e => {
+      if (e.key === "Enter") els.manualSearch.click();
+    });
+  </script>
+</body>
+</html>
